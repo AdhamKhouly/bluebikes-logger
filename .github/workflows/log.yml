@@ -1,0 +1,41 @@
+name: Log Bluebikes station status
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub Actions cron is best-effort: actual runs
+    # typically land every 10-20 minutes, which is fine for this project.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: logger
+  cancel-in-progress: false
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Fetch and append snapshot
+        run: python logger.py
+
+      - name: Commit data
+        run: |
+          git config user.name "gbfs-logger"
+          git config user.email "actions@github.com"
+          git add data/
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "snapshot $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          # Rebase in case another run pushed while this one was working
+          git pull --rebase origin ${GITHUB_REF_NAME}
+          git push
