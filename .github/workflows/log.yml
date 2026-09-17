@@ -4,7 +4,7 @@ on:
   schedule:
     # Every 10 minutes. GitHub Actions cron is best-effort: actual runs
     # typically land every 10-20 minutes, which is fine for this project.
-    - cron: "*/10 * * * *"
+    - cron: "4,14,24,34,44,54 * * * *"
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
 
 permissions:
