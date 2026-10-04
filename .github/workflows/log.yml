@@ -2,40 +2,35 @@ name: Log Bluebikes station status
 
 on:
   schedule:
-    # Every 10 minutes. GitHub Actions cron is best-effort: actual runs
-    # typically land every 10-20 minutes, which is fine for this project.
-    - cron: "4,14,24,34,44,54 * * * *"
-  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+    - cron: "0 * * * *"      # hourly; GitHub honours this far better than */10
+  workflow_dispatch:         # lets you trigger it by hand (or from an external cron)
 
 permissions:
   contents: write
 
 concurrency:
-  group: logger
-  cancel-in-progress: false
+  group: gbfs-logger
+  cancel-in-progress: false  # if a run overlaps the next hour's, let both finish
 
 jobs:
   log:
     runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      SNAPSHOTS: "6"         # 6 snapshots × 10 min = one hour of coverage per run
+      INTERVAL_SEC: "600"
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - run: pip install requests
-
-      - name: Fetch and append snapshot
-        run: python logger.py
-
-      - name: Commit data
+      - run: python logger.py
+      - name: Commit new data
         run: |
           git config user.name "gbfs-logger"
-          git config user.email "actions@github.com"
+          git config user.email "gbfs-logger@users.noreply.github.com"
           git add data/
-          git diff --cached --quiet && echo "Nothing to commit" && exit 0
-          git commit -m "snapshot $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          # Rebase in case another run pushed while this one was working
-          git pull --rebase origin ${GITHUB_REF_NAME}
+          git diff --cached --quiet || git commit -m "log: $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git pull --rebase origin main
           git push
