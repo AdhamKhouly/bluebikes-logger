@@ -3,13 +3,12 @@ Bluebikes GBFS station_status logger.
 
 Fetches the current bikes/docks available at every Bluebikes station
 and appends one row per station to a daily CSV in data/.
-
-Run it once -> one snapshot. Run it on a schedule -> a history.
 """
 
 import csv
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -21,6 +20,11 @@ DISCOVERY_URL = "https://gbfs.bluebikes.com/gbfs/gbfs.json"
 FALLBACK_STATUS_URL = "https://gbfs.lyft.com/gbfs/1.1/bos/en/station_status.json"
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+# How many snapshots to take in one run, and how far apart (seconds).
+# Defaults keep the old behaviour: one snapshot, exit.
+SNAPSHOTS = int(os.environ.get("SNAPSHOTS", "1"))
+INTERVAL_SEC = int(os.environ.get("INTERVAL_SEC", "600"))
 
 FIELDS = [
     "snapshot_utc",        # when the feed said it was last updated
@@ -53,9 +57,8 @@ def get_station_status_url() -> str:
     return FALLBACK_STATUS_URL
 
 
-def fetch_snapshot() -> tuple[str, list[dict]]:
+def fetch_snapshot(url: str) -> tuple[str, list[dict]]:
     """Fetch station_status and return (feed_timestamp_iso, station rows)."""
-    url = get_station_status_url()
     r = requests.get(url, timeout=30)
     r.raise_for_status()
     payload = r.json()
@@ -97,15 +100,27 @@ def append_rows(snapshot_utc: str, stations: list[dict]) -> str:
     return path
 
 
-def main() -> None:
-    snapshot_utc, stations = fetch_snapshot()
+def log_once(url: str) -> None:
+    """Fetch one snapshot, append it, print a one-line summary."""
+    snapshot_utc, stations = fetch_snapshot(url)
     path = append_rows(snapshot_utc, stations)
     empty = sum(1 for s in stations
                 if s.get("num_bikes_available") == 0 and s.get("is_renting") == 1)
     full = sum(1 for s in stations
                if s.get("num_docks_available") == 0 and s.get("is_returning") == 1)
     print(f"Logged {len(stations)} stations to {os.path.basename(path)} "
-          f"(snapshot {snapshot_utc}). Empty: {empty}, full: {full}.")
+          f"(snapshot {snapshot_utc}). Empty: {empty}, full: {full}.", flush=True)
+
+
+def main() -> None:
+    url = get_station_status_url()          # resolve once per run, not per snapshot
+    for i in range(SNAPSHOTS):
+        try:
+            log_once(url)
+        except Exception as e:              # one bad fetch shouldn't kill the whole run
+            print(f"Snapshot {i + 1}/{SNAPSHOTS} failed: {e}", file=sys.stderr, flush=True)
+        if i < SNAPSHOTS - 1:
+            time.sleep(INTERVAL_SEC)
 
 
 if __name__ == "__main__":
