@@ -2,22 +2,22 @@ name: Log Bluebikes station status
 
 on:
   schedule:
-    - cron: "0 * * * *"      # hourly; GitHub honours this far better than */10
-  workflow_dispatch:         # lets you trigger it by hand (or from an external cron)
+    - cron: "0 * * * *"      # hourly request; GitHub actually starts ~4 runs/day
+  workflow_dispatch:         # lets you trigger it by hand
 
 permissions:
   contents: write
 
 concurrency:
   group: gbfs-logger
-  cancel-in-progress: false  # if a run overlaps the next hour's, let both finish
+  cancel-in-progress: false  # if GitHub starts a run while one is going, queue it
 
 jobs:
   log:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 355     # GitHub's hard cap is 360
     env:
-      SNAPSHOTS: "6"         # 6 snapshots × 10 min = one hour of coverage per run
+      SNAPSHOTS: "33"        # 33 snapshots × 10 min ≈ 5.5 h of coverage per run
       INTERVAL_SEC: "600"
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +27,7 @@ jobs:
       - run: pip install requests
       - run: python logger.py
       - name: Commit new data
+        if: always()         # commit whatever was logged, even if the job is cancelled or times out
         run: |
           git config user.name "gbfs-logger"
           git config user.email "gbfs-logger@users.noreply.github.com"
